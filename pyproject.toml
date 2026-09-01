@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=67"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drf-contenttype-contracts"
+version = "0.1.0"
+description = "Declarative ContentType-backed API contracts for Django REST Framework."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "Django>=4.2",
+    "djangorestframework>=3.14",
+]
+
+[tool.setuptools]
+packages = ["drf_contenttype_contracts"]
+package-dir = { "drf_contenttype_contracts" = "." }
