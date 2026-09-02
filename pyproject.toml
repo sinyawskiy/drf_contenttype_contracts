@@ -4,8 +4,8 @@ build-backend = "poetry.core.masonry.api"
 
 [project]
 name = "drf-contenttype-contracts"
-version = "0.1.1"
-description = "Declarative ContentType-backed API contracts for Django REST Framework."
+version = "0.1.2"
+description = "Declarative contracts for Django generic APIs built on ContentType and Django REST Framework."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [

@@ -17,7 +17,7 @@ def is_contract_class(value) -> bool:
         isinstance(value, type)
         and issubclass(value, DeclarativeContentTypeContract)
         and value is not DeclarativeContentTypeContract
-        and not getattr(value, 'abstract', False)
+        and not value.__dict__.get('abstract', False)
     )
 
 

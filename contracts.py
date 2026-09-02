@@ -41,7 +41,7 @@ def contract_policy_applied(request) -> bool:
     return bool(getattr(request, CONTRACT_POLICY_APPLIED_ATTR, None))
 
 
-# Backward-compatible names for the first DrTrial implementation.
+# Backward-compatible names for projects that started with registry naming.
 mark_registry_policy_applied = mark_contract_policy_applied
 registry_policy_applied = contract_policy_applied
 
