@@ -1,9 +1,10 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, FrozenSet, Iterable, Optional
 
 
 DEFAULT_SERIALIZER_TYPE = 'default'
 DEFAULT_READ_ACTIONS = frozenset({'list', 'retrieve'})
+DEFAULT_LOAD_STORE_ACTIONS = frozenset({'list', 'retrieve', 'destroy'})
 REGISTRY_POLICY_APPLIED_ATTR = '_content_type_registry_policy_applied'
 CONTRACT_POLICY_APPLIED_ATTR = REGISTRY_POLICY_APPLIED_ATTR
 
@@ -227,6 +228,45 @@ class DeclarativeContentTypeContract:
         )
 
 
+class AuthenticatedContentTypeContract(DeclarativeContentTypeContract):
+    """Base declaration for contracts available to authenticated users."""
+
+    abstract = True
+    policy = any_authenticated_user
+
+
+class AuthenticatedReadOnlyContract(AuthenticatedContentTypeContract):
+    """Authenticated `list`/`retrieve` contract."""
+
+    abstract = True
+    actions = DEFAULT_READ_ACTIONS
+
+
+class AuthenticatedMutableContract(AuthenticatedContentTypeContract):
+    """Authenticated `list`/`retrieve`/`destroy` contract."""
+
+    abstract = True
+    actions = DEFAULT_LOAD_STORE_ACTIONS
+
+
+class UnauditedContentTypeContract(AuthenticatedMutableContract):
+    """Temporary authenticated contract that should still emit audit warnings."""
+
+    abstract = True
+    missing_policy_actions = None
+
+    @classmethod
+    def as_contract(cls) -> ContentTypeContract:
+        contract = super().as_contract()
+        if cls.missing_policy_actions is None:
+            return replace(contract, missing_policy_actions=contract.allowed_actions)
+        return contract
+
+
 # Backward-compatible aliases for projects that started with Resource naming.
 ContentTypeResource = ContentTypeContract
 Ctr = DeclarativeContentTypeContract
+AuthenticatedResource = AuthenticatedContentTypeContract
+AuthenticatedReadOnlyResource = AuthenticatedReadOnlyContract
+AuthenticatedMutableResource = AuthenticatedMutableContract
+UnauditedResource = UnauditedContentTypeContract

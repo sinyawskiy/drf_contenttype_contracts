@@ -1,18 +1,26 @@
 [build-system]
-requires = ["setuptools>=67"]
-build-backend = "setuptools.build_meta"
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
 
 [project]
 name = "drf-contenttype-contracts"
-version = "0.1.0"
+version = "0.1.1"
 description = "Declarative ContentType-backed API contracts for Django REST Framework."
 readme = "README.md"
 requires-python = ">=3.10"
+authors = [
+    { name = "Alexey Sinyawskiy", email = "sinyawskiy@gmail.com" },
+]
 dependencies = [
     "Django>=4.2",
     "djangorestframework>=3.14",
 ]
 
-[tool.setuptools]
-packages = ["drf_contenttype_contracts"]
-package-dir = { "drf_contenttype_contracts" = "." }
+[tool.poetry]
+packages = [
+    { include = "__init__.py", to = "drf_contenttype_contracts" },
+    { include = "contracts.py", to = "drf_contenttype_contracts" },
+    { include = "registry.py", to = "drf_contenttype_contracts" },
+    { include = "serializers.py", to = "drf_contenttype_contracts" },
+    { include = "views.py", to = "drf_contenttype_contracts" },
+]

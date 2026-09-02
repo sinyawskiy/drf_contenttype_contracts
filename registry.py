@@ -21,6 +21,50 @@ def is_contract_class(value) -> bool:
     )
 
 
+def _callable_signature(value):
+    if value is None:
+        return None
+    return (
+        getattr(value, '__module__', value.__class__.__module__),
+        getattr(value, '__qualname__', getattr(value, '__name__', value.__class__.__qualname__)),
+    )
+
+
+def _serializer_signature(value):
+    if isinstance(value, dict):
+        return tuple(
+            (key, _serializer_signature(item))
+            for key, item in sorted(value.items(), key=lambda item: item[0])
+        )
+    return _callable_signature(value)
+
+
+def _lifecycle_signature(lifecycle):
+    return tuple(
+        (hook_name, _callable_signature(getattr(lifecycle, hook_name, None)))
+        for hook_name in (
+            'before_create',
+            'after_create',
+            'before_update',
+            'after_update',
+            'before_delete',
+            'after_delete',
+        )
+    )
+
+
+def contract_signature(contract):
+    return (
+        contract.allowed_actions,
+        _callable_signature(contract.policy),
+        _serializer_signature(contract.serializer_map),
+        _serializer_signature(contract.request_serializer_map),
+        _serializer_signature(contract.response_serializer_map),
+        contract.missing_policy_actions,
+        _lifecycle_signature(contract.lifecycle),
+    )
+
+
 class ContentTypeContractRegistry:
     """Explicit allowlist of ContentType-backed API contracts."""
 
@@ -33,7 +77,13 @@ class ContentTypeContractRegistry:
 
         key = contract.key
         if key in self._contracts:
-            raise ValueError(f'Contract {contract.app_label}.{contract.model} is already registered')
+            existing = self._contracts[key]
+            if contract_signature(existing) == contract_signature(contract):
+                return existing
+            raise ValueError(
+                f'Contract {contract.app_label}.{contract.model} is already registered '
+                f'with a different definition'
+            )
         self._contracts[key] = contract
         return contract
 

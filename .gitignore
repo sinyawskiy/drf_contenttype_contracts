@@ -1,4 +1,6 @@
 .pypirc*
+.venv/
+.idea/
 dist/
 build/
 *.egg-info/
