@@ -156,6 +156,9 @@ class ContentTypeContractRegistry:
     def is_registered(self, app_label: Optional[str], model: Optional[str]) -> bool:
         return (app_label, model) in self._contracts
 
+    def registered_keys(self) -> tuple[Tuple[str, str], ...]:
+        return tuple(sorted(self._contracts))
+
     def get_serializer(
         self,
         app_label: Optional[str],

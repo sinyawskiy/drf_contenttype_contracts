@@ -1,7 +1,9 @@
 import json
 import logging
 
+from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
+from django.db.models import Q
 from rest_framework import status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import JSONParser
@@ -27,6 +29,7 @@ class ContentTypeContractsView(viewsets.GenericViewSet):
     parser_classes = (JSONParser,)
     filter_serializer_class = ContentTypeFilterSerializer
     delete_signal = None
+    limit_content_type_list_setting = 'DRF_CONTENTTYPE_CONTRACTS_LIMIT_CONTENTTYPE_LIST'
     serializer_classes = {
         'list': ContentTypeInstanceListSerializer,
         'retrieve': ContentTypeInstanceRetrieveSerializer,
@@ -86,8 +89,29 @@ class ContentTypeContractsView(viewsets.GenericViewSet):
 
     def base_queryset(self):
         if getattr(self.model_class, 'list_queryset', None):
-            return self.model_class.list_queryset(**{'request': self.request})
-        return self.model_class.objects.all()
+            queryset = self.model_class.list_queryset(**{'request': self.request})
+        else:
+            queryset = self.model_class.objects.all()
+
+        if self.should_limit_content_type_queryset():
+            return self.registered_content_types_queryset(queryset)
+        return queryset
+
+    def should_limit_content_type_queryset(self) -> bool:
+        return (
+            self.model_class is ContentType
+            and bool(getattr(settings, self.limit_content_type_list_setting, True))
+        )
+
+    def registered_content_types_queryset(self, queryset):
+        keys = self.get_contract_registry().registered_keys()
+        if not keys:
+            return queryset.none()
+
+        condition = Q()
+        for app_label, model in keys:
+            condition |= Q(app_label=app_label, model=model)
+        return queryset.filter(condition)
 
     def get_content_type_queryset(self, data):
         self.set_model_class()

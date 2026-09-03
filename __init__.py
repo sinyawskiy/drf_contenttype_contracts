@@ -57,6 +57,7 @@ __all__ = (
     'ContentTypeLifecycle',
     'ContentTypeResource',
     'ContentTypeResourceRegistry',
+    'DjangoContentTypeContract',
     'Ctr',
     'DeclarativeContentTypeContract',
     'PermissionCheckContext',
@@ -79,3 +80,11 @@ __all__ = (
     'serializer_map_to_names',
     'serializer_name',
 )
+
+
+def __getattr__(name):
+    if name == 'DjangoContentTypeContract':
+        from drf_contenttype_contracts.contenttypes import DjangoContentTypeContract
+
+        return DjangoContentTypeContract
+    raise AttributeError(f"module 'drf_contenttype_contracts' has no attribute {name!r}")

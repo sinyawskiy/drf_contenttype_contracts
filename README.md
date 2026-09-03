@@ -11,6 +11,7 @@ permissions and lifecycle hooks explicit.
 - serializer map resolution
 - class-based declarations for autodiscover
 - authenticated read/mutable declaration bases
+- a built-in `DjangoContentTypeContract`
 - lifecycle hooks
 - a generic `ContentTypeContractsView`
 
@@ -100,6 +101,28 @@ with the default `debug=None`:
 
 ```python
 DRF_CONTENTTYPE_CONTRACTS_DEBUG = True
+```
+
+Register Django's built-in `ContentType` model when the frontend needs content
+type ids for generic relations:
+
+```python
+from drf_contenttype_contracts import ContentTypeContractRegistry, DjangoContentTypeContract
+
+registry = ContentTypeContractRegistry()
+registry.register(UserContract)
+registry.register(DjangoContentTypeContract)
+```
+
+By default, `ContentTypeContractsView` limits `contenttypes.contenttype` list
+responses to models registered in the active contract registry. This prevents
+the generic API from exposing every row from `django_content_type`.
+
+Disable this limit only if your project intentionally exposes all content
+types:
+
+```python
+DRF_CONTENTTYPE_CONTRACTS_LIMIT_CONTENTTYPE_LIST = False
 ```
 
 Example `list` request, assuming your project exposes the view action at
