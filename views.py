@@ -30,6 +30,16 @@ logger = logging.getLogger(__name__)
 
 
 class ContentTypeContractsView(viewsets.GenericViewSet):
+    # Имена Django-настроек, управляющих строгостью filter/order-валидации.
+    # По умолчанию (настройка не задана) — строгий режим: неразрешённое поле
+    # кидает ValidationError, как и было изначально. Если в проекте нужно
+    # мягко выкатить новую валидацию (сначала посмотреть в логах, что реально
+    # используется, и только потом добавлять в filter_fields/order_fields
+    # нужных контрактов) — выставить соответствующую настройку в False:
+    # неразрешённое поле тогда только пишется в лог и пропускается как раньше.
+    filter_strict_mode_setting = 'DRF_CONTENT_TYPE_CONTRACTS_FILTER_STRICT_MODE'
+    order_strict_mode_setting = 'DRF_CONTENT_TYPE_CONTRACTS_ORDER_STRICT_MODE'
+
     filter_group_keys = frozenset({'_and', '_or'})
     default_filter_lookup_names = frozenset({
         'contains',
@@ -161,6 +171,14 @@ class ContentTypeContractsView(viewsets.GenericViewSet):
         return lookup_names
 
     @classmethod
+    def is_filter_strict_mode(cls) -> bool:
+        return bool(getattr(settings, cls.filter_strict_mode_setting, True))
+
+    @classmethod
+    def is_order_strict_mode(cls) -> bool:
+        return bool(getattr(settings, cls.order_strict_mode_setting, True))
+
+    @classmethod
     def is_filter_key_allowed(cls, key, allowed_fields, lookup_names):
         if key in allowed_fields:
             return True
@@ -192,9 +210,10 @@ class ContentTypeContractsView(viewsets.GenericViewSet):
                 )
                 continue
             if not cls.is_filter_key_allowed(key, allowed_fields, lookup_names):
-                raise ValidationError({
-                    field_name: f'Filter field {key} is not allowed for {model_class._meta.label_lower}'
-                })
+                message = f'Filter field {key} is not allowed for {model_class._meta.label_lower}'
+                if cls.is_filter_strict_mode():
+                    raise ValidationError({field_name: message})
+                logger.warning(f'{message} ({cls.filter_strict_mode_setting}=False — allowing through)')
         return filters
 
     @classmethod
@@ -210,9 +229,10 @@ class ContentTypeContractsView(viewsets.GenericViewSet):
             if normalized_field_name.startswith('-'):
                 normalized_field_name = normalized_field_name[1:]
             if normalized_field_name not in allowed_fields:
-                raise ValidationError({
-                    'order': f'Ordering field {field_name} is not allowed for {model_class._meta.label_lower}'
-                })
+                message = f'Ordering field {field_name} is not allowed for {model_class._meta.label_lower}'
+                if cls.is_order_strict_mode():
+                    raise ValidationError({'order': message})
+                logger.warning(f'{message} ({cls.order_strict_mode_setting}=False — allowing through)')
         return order_by
 
     @staticmethod
