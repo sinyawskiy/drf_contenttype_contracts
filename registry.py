@@ -8,7 +8,7 @@ from typing import Any, Iterator, Optional, TextIO, Tuple
 from django.apps import apps as django_apps
 from django.conf import settings as django_settings
 
-from drf_contenttype_contracts.contracts import (
+from drf_contenttype_contracts.resources.base import (
     DEFAULT_SERIALIZER_TYPE,
     ContentTypeContract,
     DeclarativeContentTypeContract,
@@ -100,6 +100,8 @@ def contract_signature(contract):
         _serializer_signature(contract.response_serializer_map),
         contract.missing_policy_actions,
         _lifecycle_signature(contract.lifecycle),
+        contract.filter_fields,
+        contract.order_fields,
     )
 
 

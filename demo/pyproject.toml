@@ -1,0 +1,17 @@
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "drf-contenttype-contracts-demo"
+version = "0.1.0"
+description = "Demo Django project for drf-contenttype-contracts."
+authors = ["Alexey Sinyawskiy <sinyawskiy@gmail.com>"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = ">=3.10,<4.0"
+Django = ">=4.2"
+djangorestframework = ">=3.14"
+drf-spectacular = ">=0.27"
+drf-contenttype-contracts = { path = "..", develop = true }

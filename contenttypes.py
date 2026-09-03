@@ -1,9 +1,3 @@
-from drf_contenttype_contracts.contracts import AuthenticatedReadOnlyContract
-from drf_contenttype_contracts.serializers import ContentTypeListSerializer
+from drf_contenttype_contracts.resources.django import DjangoContentTypeContract
 
-
-class DjangoContentTypeContract(AuthenticatedReadOnlyContract):
-    """Read-only contract for Django's built-in ContentType model."""
-
-    model = 'contenttypes.contenttype'
-    serializer = ContentTypeListSerializer
+__all__ = ('DjangoContentTypeContract',)

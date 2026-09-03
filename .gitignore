@@ -1,5 +1,6 @@
 .pypirc*
 .venv/
+.claude/
 .idea/
 dist/
 build/
@@ -10,3 +11,4 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .coverage
+poetry.lock

@@ -1,16 +1,21 @@
 import json
 import logging
+from collections.abc import Mapping
 
+from django.apps import apps as django_apps
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import FieldDoesNotExist, ValidationError as DjangoValidationError
 from django.db.models import Q
+from django.db.models.constants import LOOKUP_SEP
 from rest_framework import status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 from rest_framework.serializers import ValidationError as SerializerValidationError
 from rest_framework.status import HTTP_200_OK, HTTP_204_NO_CONTENT
 
+from drf_contenttype_contracts.permissions import ContentTypeContractPermission
 from drf_contenttype_contracts.registry import default_registry
 from drf_contenttype_contracts.serializers import (
     ContentTypeInstanceAddOrEditSerializer,
@@ -25,7 +30,41 @@ logger = logging.getLogger(__name__)
 
 
 class ContentTypeContractsView(viewsets.GenericViewSet):
+    filter_group_keys = frozenset({'_and', '_or'})
+    default_filter_lookup_names = frozenset({
+        'contains',
+        'date',
+        'day',
+        'endswith',
+        'exact',
+        'gt',
+        'gte',
+        'hour',
+        'icontains',
+        'iendswith',
+        'iexact',
+        'in',
+        'iregex',
+        'isnull',
+        'iso_week_day',
+        'iso_year',
+        'istartswith',
+        'lt',
+        'lte',
+        'minute',
+        'month',
+        'quarter',
+        'range',
+        'regex',
+        'second',
+        'startswith',
+        'time',
+        'week',
+        'week_day',
+        'year',
+    })
     contract_registry = default_registry
+    permission_classes = (ContentTypeContractPermission,)
     parser_classes = (JSONParser,)
     filter_serializer_class = ContentTypeFilterSerializer
     delete_signal = None
@@ -42,6 +81,156 @@ class ContentTypeContractsView(viewsets.GenericViewSet):
 
     def get_serializer_class(self):
         return self.serializer_classes.get(self.action)
+
+    @staticmethod
+    def get_model_class(app_label, model_name):
+        try:
+            model_class = django_apps.get_model(app_label, model_name, require_ready=False)
+        except LookupError:
+            model_class = None
+
+        if model_class is not None:
+            return model_class
+
+        try:
+            content_type = ContentType.objects.get(app_label=app_label, model=model_name)
+        except ContentType.DoesNotExist:
+            raise ValidationError({'errors': f'ContentType not found for {app_label}.{model_name}'})
+
+        model_class = content_type.model_class()
+        if model_class is None:
+            raise ValidationError({'errors': f'Model class is not available for {app_label}.{model_name}. '
+                                             f'Possible stale django_content_type row.'})
+        return model_class
+
+    def get_action_contract(self, data=None, action=None):
+        data = self.request.data if data is None else data
+        action = self.action if action is None else action
+        app_label = data.get('app_label')
+        model = data.get('model')
+        contract = self.get_contract_registry().get(app_label, model)
+        if contract is None:
+            raise PermissionDenied(f'Contract is not registered for {app_label}.{model}')
+        if action not in contract.allowed_actions:
+            raise PermissionDenied(f'Action {action} is not registered for {app_label}.{model}')
+        return contract
+
+    @classmethod
+    def get_model_field_names(cls, model_class):
+        field_names = set()
+        for field in model_class._meta.fields:
+            field_names.add(field.name)
+            attname = getattr(field, 'attname', None)
+            if attname:
+                field_names.add(attname)
+        return field_names
+
+    @classmethod
+    def expand_declared_field_names(cls, model_class, declared_fields):
+        declared_fields = {str(field) for field in (declared_fields or ())}
+        public_fields = set(declared_fields)
+        for field in model_class._meta.fields:
+            names = {field.name, getattr(field, 'attname', None)}
+            if declared_fields.intersection(names):
+                public_fields.update(name for name in names if name)
+        return public_fields
+
+    @classmethod
+    def get_public_filter_field_names(cls, model_class, contract=None):
+        if contract is not None and contract.filter_fields is not None:
+            return cls.expand_declared_field_names(model_class, contract.filter_fields)
+
+        if hasattr(model_class, 'filter_fields'):
+            return cls.expand_declared_field_names(model_class, model_class.filter_fields)
+
+        return cls.get_model_field_names(model_class)
+
+    @classmethod
+    def get_public_order_field_names(cls, model_class, contract=None):
+        if contract is not None and contract.order_fields is not None:
+            return cls.expand_declared_field_names(model_class, contract.order_fields)
+        return cls.get_public_filter_field_names(model_class, contract=contract)
+
+    @classmethod
+    def get_filter_lookup_names(cls, model_class):
+        lookup_names = set(cls.default_filter_lookup_names)
+        for field in model_class._meta.fields:
+            get_lookups = getattr(field, 'get_lookups', None)
+            if get_lookups is not None:
+                lookup_names.update(get_lookups())
+        return lookup_names
+
+    @classmethod
+    def is_filter_key_allowed(cls, key, allowed_fields, lookup_names):
+        if key in allowed_fields:
+            return True
+
+        parts = str(key).split(LOOKUP_SEP)
+        for prefix_length in range(len(parts) - 1, 0, -1):
+            prefix = LOOKUP_SEP.join(parts[:prefix_length])
+            suffixes = parts[prefix_length:]
+            if prefix in allowed_fields and all(suffix in lookup_names for suffix in suffixes):
+                return True
+        return False
+
+    @classmethod
+    def validate_filter_tree(cls, model_class, filters, field_name='filters', contract=None):
+        if filters in (None, ''):
+            return {}
+        if not isinstance(filters, Mapping):
+            raise ValidationError({field_name: 'Expected object with filter fields'})
+
+        allowed_fields = cls.get_public_filter_field_names(model_class, contract=contract)
+        lookup_names = cls.get_filter_lookup_names(model_class)
+        for key, value in filters.items():
+            if key in cls.filter_group_keys:
+                cls.validate_filter_tree(
+                    model_class,
+                    value,
+                    field_name=field_name,
+                    contract=contract,
+                )
+                continue
+            if not cls.is_filter_key_allowed(key, allowed_fields, lookup_names):
+                raise ValidationError({
+                    field_name: f'Filter field {key} is not allowed for {model_class._meta.label_lower}'
+                })
+        return filters
+
+    @classmethod
+    def validate_ordering_fields(cls, model_class, order_by, contract=None):
+        if not order_by:
+            return order_by
+
+        allowed_fields = cls.get_public_order_field_names(model_class, contract=contract)
+        for field_name in order_by:
+            if not field_name:
+                continue
+            normalized_field_name = str(field_name).strip()
+            if normalized_field_name.startswith('-'):
+                normalized_field_name = normalized_field_name[1:]
+            if normalized_field_name not in allowed_fields:
+                raise ValidationError({
+                    'order': f'Ordering field {field_name} is not allowed for {model_class._meta.label_lower}'
+                })
+        return order_by
+
+    @staticmethod
+    def validate_lookup_value(model_class, field_name, value, request_field_name=None):
+        request_field_name = request_field_name or field_name
+        try:
+            field = model_class._meta.get_field(field_name)
+        except FieldDoesNotExist:
+            raise ValidationError({
+                request_field_name: f'Field {field_name} is not available for {model_class._meta.label_lower}'
+            })
+
+        try:
+            return field.to_python(value)
+        except (DjangoValidationError, TypeError, ValueError):
+            raise ValidationError({
+                request_field_name: f'Invalid {request_field_name} for {model_class._meta.label_lower}'
+            })
 
     @staticmethod
     def apply_filters(qs, filters, exclude=False):
@@ -78,14 +267,7 @@ class ContentTypeContractsView(viewsets.GenericViewSet):
     def set_model_class(self):
         app_label = self.request.data.get('app_label')
         model = self.request.data.get('model')
-        try:
-            content_type = ContentType.objects.get(app_label=app_label, model=model)
-        except ContentType.DoesNotExist:
-            raise ValidationError({'errors': f'ContentType not found for {app_label}.{model}'})
-        self.model_class = content_type.model_class()
-        if self.model_class is None:
-            raise ValidationError({'errors': f'Model class is not available for {app_label}.{model}. '
-                                             f'Possible stale django_content_type row.'})
+        self.model_class = self.get_model_class(app_label, model)
 
     def base_queryset(self):
         if getattr(self.model_class, 'list_queryset', None):
@@ -113,8 +295,9 @@ class ContentTypeContractsView(viewsets.GenericViewSet):
             condition |= Q(app_label=app_label, model=model)
         return queryset.filter(condition)
 
-    def get_content_type_queryset(self, data):
+    def get_content_type_queryset(self, data, contract=None):
         self.set_model_class()
+        contract = contract or self.get_action_contract(data)
 
         queryset = self.base_queryset()
 
@@ -122,15 +305,16 @@ class ContentTypeContractsView(viewsets.GenericViewSet):
             queryset = queryset.filter(published=True)
 
         include_all = data.get('all')
-        filters = data.get('filters', {})
-        exclude_filters = data.get('excludes', {})
+        filters = dict(data.get('filters') or {})
+        exclude_filters = dict(data.get('excludes') or {})
         search = data.get('search', '')
         start_index = data.get('start_index', 0)
         stop_index = data.get('stop_index', 5)
         order = data.get('order', '')
 
         if order:
-            order_by = order.split(';')
+            order_by = [field_name.strip() for field_name in order.split(';') if field_name.strip()]
+            self.validate_ordering_fields(self.model_class, order_by, contract=contract)
         else:
             order_by = self.model_class._meta.ordering or ''
 
@@ -155,6 +339,13 @@ class ContentTypeContractsView(viewsets.GenericViewSet):
                         filters['id'] = filters_content_type.id
                     else:
                         filters['content_type_id'] = filters_content_type.id
+        self.validate_filter_tree(self.model_class, filters, field_name='filters', contract=contract)
+        self.validate_filter_tree(
+            self.model_class,
+            exclude_filters,
+            field_name='excludes',
+            contract=contract,
+        )
         queryset = filtering_method(queryset, filters)
         queryset = filtering_method(queryset, exclude_filters, exclude=True)
 
@@ -219,14 +410,17 @@ class ContentTypeContractsView(viewsets.GenericViewSet):
         try:
             content_type_data.is_valid(raise_exception=True)
         except ValidationError as exc:
-            return Response(exc.detail, status=HTTP_200_OK)
+            return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+
+        data = content_type_data.validated_data
+        contract = self.get_action_contract(data)
 
         try:
             queryset, count, start_index, stop_index, order, search, full_match_exists = (
-                self.get_content_type_queryset(content_type_data.data)
+                self.get_content_type_queryset(data, contract=contract)
             )
         except ValidationError as exc:
-            return Response(exc.detail, status=HTTP_200_OK)
+            return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
         except Exception as exc:
             logger.exception(
                 'ContentTypeContractsView list failed for request=%s',
@@ -247,62 +441,76 @@ class ContentTypeContractsView(viewsets.GenericViewSet):
         }
         if full_match_exists is not None:
             data['full_match_exists'] = full_match_exists
-        data.update(self.filter_serializer_class(self.model_class).data)
+        data.update(self.filter_serializer_class(
+            self.model_class,
+            context={'filter_fields': self.get_public_filter_field_names(self.model_class, contract=contract)},
+        ).data)
 
         return Response(data, status=HTTP_200_OK)
 
     def retrieve(self, request, *args):
-        app_label = request.data.get('app_label')
-        model_name = request.data.get('model')
-        logger.info('Retrieving content type instance %s.%s', app_label, model_name)
-        content_type = ContentType.objects.get(app_label=app_label, model=model_name)
-        model = content_type.model_class()
-        if model is None:
-            logger.error('Model class is None for content type %s.%s', app_label, model_name)
-            return Response(
-                {'error': f"Модель {app_label}.{model_name} недоступна "
-                          f"(возможна устаревшая запись django_content_type)"},
-                status=HTTP_200_OK,
-            )
+        content_type_serializer = self.get_serializer_class()
+        content_type_data = content_type_serializer(data=request.data, context={'request': request})
 
-        if 'id' in request.data:
-            try:
-                instance = model.objects.get(id=request.data['id'])
-            except model.DoesNotExist:
-                logger.error('Instance with ID %s not found for model %s', request.data['id'], model.__name__)
-                return Response({'error': f'Указанного объекта класса {model.__name__} не существует'})
-        elif 'uuid' in request.data:
-            try:
-                instance = model.objects.get(uuid=request.data['uuid'])
-            except model.DoesNotExist:
-                logger.error('Instance with UUID %s not found for model %s', request.data['uuid'], model.__name__)
-                return Response({'error': f'Указанного объекта класса {model.__name__} не существует'})
-        elif 'external_id' in request.data:
-            if not hasattr(model, 'external_id'):
-                logger.error('Model %s does not support external_id lookup', model.__name__)
-                return Response({'error': f'Класс {model.__name__} не поддерживает поиск по external_id'})
-            try:
-                instance = model.objects.get(external_id=request.data['external_id'])
-            except (model.DoesNotExist, ValueError):
-                logger.error(
-                    'Instance with external_id %s not found for model %s',
-                    request.data['external_id'],
-                    model.__name__,
+        try:
+            content_type_data.is_valid(raise_exception=True)
+        except ValidationError as exc:
+            logger.error('Validation error in retrieve: %s', exc.detail)
+            return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+
+        data = content_type_data.validated_data
+        app_label = data.get('app_label')
+        model_name = data.get('model')
+        self.get_action_contract(data)
+        logger.info('Retrieving content type instance %s.%s', app_label, model_name)
+        try:
+            model = self.get_model_class(app_label, model_name)
+        except ValidationError as exc:
+            return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            if 'id' in data:
+                lookup_value = self.validate_lookup_value(
+                    model,
+                    model._meta.pk.name,
+                    data['id'],
+                    request_field_name='id',
                 )
-                return Response({'error': f'Указанного объекта класса {model.__name__} не существует'})
-        else:
-            logger.warning('No ID, UUID or external_id provided for content type retrieval')
-            return Response('Необходимые поля id, uuid или external_id', status=HTTP_200_OK)
+                try:
+                    instance = model.objects.get(pk=lookup_value)
+                except model.DoesNotExist:
+                    logger.error('Instance with ID %s not found for model %s', data['id'], model.__name__)
+                    return Response({'error': f'Указанного объекта класса {model.__name__} не существует'})
+            elif 'uuid' in data:
+                lookup_value = self.validate_lookup_value(model, 'uuid', data['uuid'])
+                try:
+                    instance = model.objects.get(uuid=lookup_value)
+                except model.DoesNotExist:
+                    logger.error('Instance with UUID %s not found for model %s', data['uuid'], model.__name__)
+                    return Response({'error': f'Указанного объекта класса {model.__name__} не существует'})
+            elif 'external_id' in data:
+                lookup_value = self.validate_lookup_value(model, 'external_id', data['external_id'])
+                try:
+                    instance = model.objects.get(external_id=lookup_value)
+                except (model.DoesNotExist, ValueError):
+                    logger.error(
+                        'Instance with external_id %s not found for model %s',
+                        data['external_id'],
+                        model.__name__,
+                    )
+                    return Response({'error': f'Указанного объекта класса {model.__name__} не существует'})
+            else:
+                logger.warning('No ID, UUID or external_id provided for content type retrieval')
+                return Response('Необходимые поля id, uuid или external_id', status=HTTP_200_OK)
+        except ValidationError as exc:
+            return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
 
         model_serializer_class = self.get_model_serializer()
         serializer = model_serializer_class(instance, context={'request': request})
         return Response(serializer.data, status=HTTP_200_OK)
 
     def add_or_edit(self, request):
-        contract = self.get_contract_registry().get(
-            request.data.get('app_label'),
-            request.data.get('model'),
-        )
+        contract = self.get_action_contract(request.data)
         serializer_type = request.data.get('serializer_type', 'default')
         payload = request.data.get('data')
         payload = payload if isinstance(payload, dict) else {}
@@ -392,6 +600,7 @@ class ContentTypeContractsView(viewsets.GenericViewSet):
             logger.error('Validation error in destroy: %s', exc.detail)
             return Response(exc.detail, status=HTTP_200_OK)
 
+        contract = self.get_action_contract(content_type_data.data)
         content_type = ContentType.objects.get(app_label=app_label, model=model_name)
         model = content_type.model_class()
         if model is None:
@@ -408,16 +617,13 @@ class ContentTypeContractsView(viewsets.GenericViewSet):
             logger.error('Instance with ID %s not found for model %s', request.data['id'], model.__name__)
             return Response({'error': f'Указанного объекта класса {model.__name__} не существует'})
 
-        contract = self.get_contract_registry().get(app_label, model_name)
-        if contract is not None:
-            contract.lifecycle.run('before_delete', request=request, view=self, instance=instance)
+        contract.lifecycle.run('before_delete', request=request, view=self, instance=instance)
 
         if self.delete_signal is not None:
             self.delete_signal.send(sender=instance.__class__, instance=instance, request=request)
 
         instance.delete()
 
-        if contract is not None:
-            contract.lifecycle.run('after_delete', request=request, view=self, instance=instance)
+        contract.lifecycle.run('after_delete', request=request, view=self, instance=instance)
 
         return Response({}, status=HTTP_204_NO_CONTENT)

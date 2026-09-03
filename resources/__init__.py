@@ -1,4 +1,4 @@
-from drf_contenttype_contracts.contracts import (
+from drf_contenttype_contracts.resources.base import (
     CONTRACT_POLICY_APPLIED_ATTR,
     DEFAULT_LOAD_STORE_ACTIONS,
     DEFAULT_READ_ACTIONS,
@@ -9,6 +9,7 @@ from drf_contenttype_contracts.contracts import (
     ContentTypeContract,
     ContentTypeLifecycle,
     DeclarativeContentTypeContract,
+    LifecycleHook,
     PermissionCheckContext,
     PermissionPolicy,
     UnauditedContentTypeContract,
@@ -17,18 +18,9 @@ from drf_contenttype_contracts.contracts import (
     deny_all,
     mark_contract_policy_applied,
     normalize_actions,
-    normalize_optional_field_names,
+    resolve_model_reference,
     resolve_serializer_from_map,
 )
-from drf_contenttype_contracts.registry import (
-    ContentTypeContractRegistry,
-    contract_signature,
-    default_registry,
-    is_contract_class,
-    serializer_map_to_names,
-    serializer_name,
-)
-from drf_contenttype_contracts.permissions import ContentTypeContractPermission
 
 __all__ = (
     'CONTRACT_POLICY_APPLIED_ATTR',
@@ -39,37 +31,17 @@ __all__ = (
     'AuthenticatedMutableContract',
     'AuthenticatedReadOnlyContract',
     'ContentTypeContract',
-    'ContentTypeContractPermission',
-    'ContentTypeContractRegistry',
     'ContentTypeLifecycle',
-    'DjangoContentTypeContract',
-    'DjangoUserContract',
     'DeclarativeContentTypeContract',
+    'LifecycleHook',
     'PermissionCheckContext',
     'PermissionPolicy',
     'UnauditedContentTypeContract',
     'any_authenticated_user',
     'contract_policy_applied',
-    'default_registry',
-    'contract_signature',
     'deny_all',
-    'is_contract_class',
     'mark_contract_policy_applied',
     'normalize_actions',
-    'normalize_optional_field_names',
+    'resolve_model_reference',
     'resolve_serializer_from_map',
-    'serializer_map_to_names',
-    'serializer_name',
 )
-
-
-def __getattr__(name):
-    if name == 'DjangoContentTypeContract':
-        from drf_contenttype_contracts.resources.django import DjangoContentTypeContract
-
-        return DjangoContentTypeContract
-    if name == 'DjangoUserContract':
-        from drf_contenttype_contracts.resources.django import DjangoUserContract
-
-        return DjangoUserContract
-    raise AttributeError(f"module 'drf_contenttype_contracts' has no attribute {name!r}")
