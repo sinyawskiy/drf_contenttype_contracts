@@ -421,6 +421,3 @@ class ContentTypeContractsView(viewsets.GenericViewSet):
             contract.lifecycle.run('after_delete', request=request, view=self, instance=instance)
 
         return Response({}, status=HTTP_204_NO_CONTENT)
-
-
-ContentTypeResourcesView = ContentTypeContractsView

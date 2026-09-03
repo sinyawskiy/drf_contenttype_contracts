@@ -5,8 +5,7 @@ from typing import Any, Callable, FrozenSet, Iterable, Optional
 DEFAULT_SERIALIZER_TYPE = 'default'
 DEFAULT_READ_ACTIONS = frozenset({'list', 'retrieve'})
 DEFAULT_LOAD_STORE_ACTIONS = frozenset({'list', 'retrieve', 'destroy'})
-REGISTRY_POLICY_APPLIED_ATTR = '_content_type_registry_policy_applied'
-CONTRACT_POLICY_APPLIED_ATTR = REGISTRY_POLICY_APPLIED_ATTR
+CONTRACT_POLICY_APPLIED_ATTR = '_content_type_contract_policy_applied'
 
 
 @dataclass(frozen=True)
@@ -39,11 +38,6 @@ def mark_contract_policy_applied(request, app_label: str, model: str, action: st
 
 def contract_policy_applied(request) -> bool:
     return bool(getattr(request, CONTRACT_POLICY_APPLIED_ATTR, None))
-
-
-# Backward-compatible names for projects that started with registry naming.
-mark_registry_policy_applied = mark_contract_policy_applied
-registry_policy_applied = contract_policy_applied
 
 
 def normalize_actions(actions: Optional[Iterable[str]]) -> FrozenSet[str]:
@@ -261,12 +255,3 @@ class UnauditedContentTypeContract(AuthenticatedMutableContract):
         if cls.missing_policy_actions is None:
             return replace(contract, missing_policy_actions=contract.allowed_actions)
         return contract
-
-
-# Backward-compatible aliases for projects that started with Resource naming.
-ContentTypeResource = ContentTypeContract
-Ctr = DeclarativeContentTypeContract
-AuthenticatedResource = AuthenticatedContentTypeContract
-AuthenticatedReadOnlyResource = AuthenticatedReadOnlyContract
-AuthenticatedMutableResource = AuthenticatedMutableContract
-UnauditedResource = UnauditedContentTypeContract

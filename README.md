@@ -43,7 +43,7 @@ Explicit policy and action set:
 from django.contrib.auth.models import User
 from rest_framework import serializers
 
-from drf_contenttype_contracts import Ctr
+from drf_contenttype_contracts import DeclarativeContentTypeContract
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -57,7 +57,7 @@ def staff_only(context):
     return bool(user and user.is_authenticated and user.is_staff)
 
 
-class UserContract(Ctr):
+class UserContract(DeclarativeContentTypeContract):
     model = User
     actions = {'list', 'retrieve'}
     policy = staff_only

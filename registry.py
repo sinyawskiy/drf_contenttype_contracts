@@ -11,7 +11,6 @@ from django.conf import settings as django_settings
 from drf_contenttype_contracts.contracts import (
     DEFAULT_SERIALIZER_TYPE,
     ContentTypeContract,
-    ContentTypeResource,
     DeclarativeContentTypeContract,
 )
 
@@ -248,9 +247,3 @@ class ContentTypeContractRegistry:
 
 
 default_registry = ContentTypeContractRegistry()
-
-
-# Backward-compatible aliases for projects that started with Resource naming.
-ContentTypeResourceRegistry = ContentTypeContractRegistry
-ResourceRegistry = ContentTypeContractRegistry
-Resource = ContentTypeResource
