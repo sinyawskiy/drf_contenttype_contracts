@@ -36,6 +36,8 @@ from drf_contenttype_contracts.registry import (
     contract_signature,
     default_registry,
     is_contract_class,
+    serializer_map_to_names,
+    serializer_name,
 )
 
 __all__ = (
@@ -74,4 +76,6 @@ __all__ = (
     'normalize_actions',
     'registry_policy_applied',
     'resolve_serializer_from_map',
+    'serializer_map_to_names',
+    'serializer_name',
 )

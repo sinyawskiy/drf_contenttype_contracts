@@ -69,6 +69,39 @@ Register a module with declarations:
 registry.register_module(content_type_contracts)
 ```
 
+Inspect registered serializers in a legacy `MODEL_WITH_SERIALIZER_MAP`-like
+shape:
+
+```python
+print(registry.to_model_serializer_map_json())
+```
+
+Example output:
+
+```json
+{
+    "auth": {
+        "user": "UserSerializer"
+    }
+}
+```
+
+Enable debug output while contracts are registered:
+
+```python
+registry = ContentTypeContractRegistry(debug=True)
+registry.register(UserContract)
+# drf-contenttype-contracts registered model=auth.user action=list type=default serializer=UserSerializer
+# drf-contenttype-contracts registered model=auth.user action=retrieve type=default serializer=UserSerializer
+```
+
+In Django settings you can also enable startup diagnostics for registries created
+with the default `debug=None`:
+
+```python
+DRF_CONTENTTYPE_CONTRACTS_DEBUG = True
+```
+
 Example `list` request, assuming your project exposes the view action at
 `/api/content-types/list/`:
 
